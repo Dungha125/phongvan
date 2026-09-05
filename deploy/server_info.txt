@@ -1,0 +1,382 @@
+
+===== cat /etc/caddy/Caddyfile =====
+api.tailieuptit.lcdkhoacntt1.com {
+    encode gzip zstd
+
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    request_body {
+        max_size 55MB
+    }
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        transport http {
+            read_timeout 60s
+            write_timeout 60s
+            dial_timeout 10s
+        }
+    }
+}
+api.interview.lcdkhoacntt1.com {
+    @sse path /api/v1/interview/*/turn/stream /api/v1/interview/tts/stream
+    handle @sse {
+        reverse_proxy 127.0.0.1:8002 {
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            transport http {
+                read_timeout 600s
+                write_timeout 600s
+                dial_timeout 30s
+            }
+        }
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8002 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            transport http {
+                read_timeout 600s
+                write_timeout 600s
+                dial_timeout 30s
+            }
+        }
+    }
+}
+
+api.ai.lcdkhoacntt1.com {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# Chặn internet mở; backend Docker hairpin thường ra IP public VPS hoặc dải private
+	@denied not remote_ip 127.0.0.1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 180.93.32.135
+	respond @denied "forbidden" 403
+
+	request_body {
+		max_size 12MB
+	}
+
+	handle_path /whisper* {
+		reverse_proxy 127.0.0.1:8090 {
+			header_up Host {host}
+			transport http {
+				read_timeout 180s
+				write_timeout 180s
+				dial_timeout 30s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:11434 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 600s
+				write_timeout 600s
+				dial_timeout 30s
+			}
+		}
+	}
+}
+
+# TOEIC0TO990 + các site khác
+import /etc/caddy/sites/*
+
+===== ls -la /etc/caddy/sites =====
+total 32
+drwxr-xr-x 2 root root 4096 Aug 24 12:52 .
+drwxr-xr-x 3 root root 4096 Sep  4 04:00 ..
+-rw-r--r-- 1 root root   63 Aug 10 12:59 algoviz-api.caddy
+-rw-r--r-- 1 root root  905 Aug 21 21:21 cmtlive.caddy
+-rw-r--r-- 1 root root 1402 Aug 20 15:23 connectroom.caddy
+-rw-r--r-- 1 root root  589 Aug 27 12:46 judge.caddy
+-rw-r--r-- 1 root root  569 Aug 20 00:51 maimai.caddy
+-rw-r--r-- 1 root root  289 Aug  8 12:33 toeic0to990.caddy
+
+===== cat /etc/caddy/sites/*.caddy =====
+api.mophongthuattoan.com {
+    reverse_proxy 127.0.0.1:18081
+}
+# Copy to /etc/caddy/sites/cmtlive.caddy then: systemctl reload caddy
+# Backend listens on 127.0.0.1:8005
+
+api.cmtlive.dhatech.shop {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 10MB
+	}
+
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+
+	handle @websocket {
+		reverse_proxy 127.0.0.1:8005 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 0
+				write_timeout 0
+				dial_timeout 10s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8005 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 120s
+				write_timeout 120s
+				dial_timeout 10s
+			}
+		}
+	}
+}
+# Copy to /etc/caddy/sites/connectroom.caddy then: systemctl reload caddy
+# API:     127.0.0.1:8004
+# LiveKit: 127.0.0.1:7880 via /livekit/* (media: public :7881 + UDP 50000-50200)
+
+api.call.dhatech.shop {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 25MB
+	}
+
+	# LiveKit signaling (WebSocket + HTTP) — path prefix stripped
+	handle_path /livekit/* {
+		reverse_proxy 127.0.0.1:7880 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 0
+				write_timeout 0
+				dial_timeout 10s
+			}
+		}
+	}
+
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+
+	handle @websocket {
+		reverse_proxy 127.0.0.1:8004 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 0
+				write_timeout 0
+				dial_timeout 10s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8004 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				read_timeout 120s
+				write_timeout 120s
+				dial_timeout 10s
+			}
+		}
+	}
+}
+# JudgeSystem API — reverse proxy (Caddy)
+# Public: https://judge.lcdkhoacntt1.com  (DNS A -> 180.93.32.135)
+# Note: jugde.lcdkhoacntt1.com has no DNS record; use judge.* instead.
+
+judge.lcdkhoacntt1.com {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	request_body {
+		max_size 16MB
+	}
+
+	reverse_proxy 127.0.0.1:8080 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+			dial_timeout 10s
+		}
+	}
+}
+# Caddy site — copy to /etc/caddy/sites/maimai.caddy on VPS
+# Backend listens on 127.0.0.1:8003 (see deploy/docker-compose.prod.yml)
+
+api.maimai.dhatech.shop {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 55MB
+	}
+
+	reverse_proxy 127.0.0.1:8003 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+			dial_timeout 10s
+		}
+	}
+}
+
+# TOEIC0TO990 — generated by deploy/generate-caddy.sh
+# Backend: 127.0.0.1:18080 | MinIO: 127.0.0.1:19000
+
+api.toeic0to990.lcdkhoacntt1.com {
+	request_body {
+		max_size 50MB
+	}
+
+	handle_path /storage/* {
+		reverse_proxy 127.0.0.1:19000
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:18080
+	}
+}
+
+===== docker ps --format 'table {{.Names}}	{{.Ports}}	{{.Status}}' =====
+NAMES                    PORTS                                                                                                                                            STATUS
+interview-backend        127.0.0.1:8002->8000/tcp                                                                                                                         Up 26 hours
+judge-api                127.0.0.1:8080->8080/tcp                                                                                                                         Up 5 days
+judge-postgres           127.0.0.1:5433->5432/tcp                                                                                                                         Up 5 days (healthy)
+judge-redis              127.0.0.1:6380->6379/tcp                                                                                                                         Up 5 days (healthy)
+cmtlive-backend          127.0.0.1:8005->8000/tcp                                                                                                                         Up 5 days (healthy)
+cmtlive-postgres         5432/tcp                                                                                                                                         Up 5 days (healthy)
+cmtlive-redis            6379/tcp                                                                                                                                         Up 5 days (healthy)
+connectroom-livekit      127.0.0.1:7880->7880/tcp, 0.0.0.0:7881->7881/tcp, [::]:7881->7881/tcp, 0.0.0.0:50000-50200->50000-50200/udp, [::]:50000-50200->50000-50200/udp   Up 5 days (healthy)
+connectroom-backend      127.0.0.1:8004->8000/tcp                                                                                                                         Up 5 days (healthy)
+connectroom-postgres     5432/tcp                                                                                                                                         Up 5 days (healthy)
+connectroom-redis        6379/tcp                                                                                                                                         Up 5 days (healthy)
+maimai-worker            8000/tcp                                                                                                                                         Up 5 days
+maimai-backend           127.0.0.1:8003->8000/tcp                                                                                                                         Up 5 days
+maimai-postgres          5432/tcp                                                                                                                                         Up 5 days (healthy)
+maimai-redis             6379/tcp                                                                                                                                         Up 5 days (healthy)
+maimai-minio             9000/tcp                                                                                                                                         Up 5 days (healthy)
+tailieuptit-backend      127.0.0.1:8000->8000/tcp                                                                                                                         Up 5 days (unhealthy)
+algoviz-api-backend-1    127.0.0.1:18081->8000/tcp                                                                                                                        Up 5 days
+algoviz-api-postgres-1   5432/tcp                                                                                                                                         Up 5 days (healthy)
+algoviz-api-redis-1      6379/tcp                                                                                                                                         Up 5 days (healthy)
+toeic0to990-backend      127.0.0.1:18080->8000/tcp                                                                                                                        Up 5 days (healthy)
+toeic0to990-postgres     5432/tcp                                                                                                                                         Up 5 days (healthy)
+toeic0to990-redis        6379/tcp                                                                                                                                         Up 5 days (healthy)
+toeic0to990-minio        127.0.0.1:19000->9000/tcp                                                                                                                        Up 5 days (healthy)
+interview-postgres       5432/tcp                                                                                                                                         Up 5 days (healthy)
+interview-redis          6379/tcp                                                                                                                                         Up 5 days (healthy)
+interview-minio          9000/tcp                                                                                                                                         Up 5 days (healthy)
+tailieuptit-redis        6379/tcp                                                                                                                                         Up 5 days (healthy)
+tailieuptit-postgres     5432/tcp                                                                                                                                         Up 5 days (healthy)
+tailieuptit-minio        9000/tcp                                                                                                                                         Up 5 days
+
+===== ss -tlnp =====
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                   
+LISTEN 0      4096       127.0.0.1:5433       0.0.0.0:*    users:(("docker-proxy",pid=15497,fd=8))  
+LISTEN 0      4096       127.0.0.1:18081      0.0.0.0:*    users:(("docker-proxy",pid=16170,fd=8))  
+LISTEN 0      4096       127.0.0.1:18080      0.0.0.0:*    users:(("docker-proxy",pid=15263,fd=8))  
+LISTEN 0      4096       127.0.0.1:2019       0.0.0.0:*    users:(("caddy",pid=1125,fd=7))          
+LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=2108816,fd=3))        
+LISTEN 0      128        127.0.0.1:11434      0.0.0.0:*    users:(("sshd",pid=1381595,fd=5))        
+LISTEN 0      4096         0.0.0.0:7881       0.0.0.0:*    users:(("docker-proxy",pid=10299,fd=8))  
+LISTEN 0      4096       127.0.0.1:7880       0.0.0.0:*    users:(("docker-proxy",pid=10165,fd=8))  
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=869,fd=14))
+LISTEN 0      4096       127.0.0.1:8005       0.0.0.0:*    users:(("docker-proxy",pid=15073,fd=8))  
+LISTEN 0      4096       127.0.0.1:8004       0.0.0.0:*    users:(("docker-proxy",pid=15185,fd=8))  
+LISTEN 0      4096       127.0.0.1:8000       0.0.0.0:*    users:(("docker-proxy",pid=15665,fd=8))  
+LISTEN 0      4096       127.0.0.1:8003       0.0.0.0:*    users:(("docker-proxy",pid=16273,fd=8))  
+LISTEN 0      4096       127.0.0.1:8002       0.0.0.0:*    users:(("docker-proxy",pid=2891912,fd=8))
+LISTEN 0      128        127.0.0.1:8090       0.0.0.0:*    users:(("sshd",pid=1381595,fd=7))        
+LISTEN 0      4096       127.0.0.1:8080       0.0.0.0:*    users:(("docker-proxy",pid=15327,fd=8))  
+LISTEN 0      4096       127.0.0.1:6380       0.0.0.0:*    users:(("docker-proxy",pid=9516,fd=8))   
+LISTEN 0      4096       127.0.0.1:19000      0.0.0.0:*    users:(("docker-proxy",pid=15150,fd=8))  
+LISTEN 0      128             [::]:22            [::]:*    users:(("sshd",pid=2108816,fd=4))        
+LISTEN 0      4096               *:80               *:*    users:(("caddy",pid=1125,fd=12))         
+LISTEN 0      4096               *:443              *:*    users:(("caddy",pid=1125,fd=10))         
+LISTEN 0      4096            [::]:7881          [::]:*    users:(("docker-proxy",pid=10309,fd=8))  
+
+===== grep -R "reverse_proxy\|localhost:\|127.0.0.1:" /etc/caddy -n =====
+/etc/caddy/Caddyfile.bak.interview:16:    reverse_proxy 127.0.0.1:8000 {
+/etc/caddy/Caddyfile.bak.interview:28:    reverse_proxy 127.0.0.1:8002
+/etc/caddy/Caddyfile.bak.interview:46:    reverse_proxy 127.0.0.1:11434 {
+/etc/caddy/sites/algoviz-api.caddy:2:    reverse_proxy 127.0.0.1:18081
+/etc/caddy/sites/toeic0to990.caddy:2:# Backend: 127.0.0.1:18080 | MinIO: 127.0.0.1:19000
+/etc/caddy/sites/toeic0to990.caddy:10:		reverse_proxy 127.0.0.1:19000
+/etc/caddy/sites/toeic0to990.caddy:14:		reverse_proxy 127.0.0.1:18080
+/etc/caddy/sites/cmtlive.caddy:2:# Backend listens on 127.0.0.1:8005
+/etc/caddy/sites/cmtlive.caddy:23:		reverse_proxy 127.0.0.1:8005 {
+/etc/caddy/sites/cmtlive.caddy:36:		reverse_proxy 127.0.0.1:8005 {
+/etc/caddy/sites/connectroom.caddy:2:# API:     127.0.0.1:8004
+/etc/caddy/sites/connectroom.caddy:3:# LiveKit: 127.0.0.1:7880 via /livekit/* (media: public :7881 + UDP 50000-50200)
+/etc/caddy/sites/connectroom.caddy:20:		reverse_proxy 127.0.0.1:7880 {
+/etc/caddy/sites/connectroom.caddy:39:		reverse_proxy 127.0.0.1:8004 {
+/etc/caddy/sites/connectroom.caddy:52:		reverse_proxy 127.0.0.1:8004 {
+/etc/caddy/sites/judge.caddy:17:	reverse_proxy 127.0.0.1:8080 {
+/etc/caddy/sites/maimai.caddy:2:# Backend listens on 127.0.0.1:8003 (see deploy/docker-compose.prod.yml)
+/etc/caddy/sites/maimai.caddy:17:	reverse_proxy 127.0.0.1:8003 {
+/etc/caddy/Caddyfile:16:    reverse_proxy 127.0.0.1:8000 {
+/etc/caddy/Caddyfile:30:        reverse_proxy 127.0.0.1:8002 {
+/etc/caddy/Caddyfile:43:        reverse_proxy 127.0.0.1:8002 {
+/etc/caddy/Caddyfile:73:		reverse_proxy 127.0.0.1:8090 {
+/etc/caddy/Caddyfile:84:		reverse_proxy 127.0.0.1:11434 {
+/etc/caddy/Caddyfile.bak:16:    reverse_proxy 127.0.0.1:8000 {

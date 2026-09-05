@@ -1,0 +1,10 @@
+node_modules
+client
+npm-debug.log
+.git
+.gitignore
+*.md
+nodemon.json
+data
+server/data.json
+server/data.json.tmp

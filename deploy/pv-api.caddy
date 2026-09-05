@@ -1,0 +1,27 @@
+# Backend: 127.0.0.1:8011 (interview-checkin-api)
+# Public: https://api.pv.lcdkhoacntt1.com
+
+api.pv.lcdkhoacntt1.com {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 2MB
+	}
+
+	reverse_proxy 127.0.0.1:8011 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			read_timeout 60s
+			write_timeout 60s
+			dial_timeout 10s
+		}
+	}
+}

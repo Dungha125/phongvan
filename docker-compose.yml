@@ -1,0 +1,29 @@
+services:
+  interview-api:
+    build: .
+    container_name: interview-checkin-api
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DATA_DIR: /app/data
+      CORS_ORIGINS: https://pv.lcdkhoacntt1.com,https://www.pv.lcdkhoacntt1.com,http://localhost:5173,http://localhost:4173
+    volumes:
+      - interview_checkin_data:/app/data
+    ports:
+      # Host port chosen after checking ss -tlnp (8011 free; bind localhost only)
+      - "127.0.0.1:8011:3001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  interview_checkin_data:
