@@ -119,12 +119,12 @@ function TableView({ tableNumber }: { tableNumber: number }) {
 
         <section className="waiting-section">
           <div className="section-title-row">
-            <h2>Chờ bàn {tableNumber}</h2>
+            <h2>Hàng chờ chung</h2>
             <span className="count-badge">{state.waiting.length}</span>
           </div>
 
           {state.waiting.length === 0 ? (
-            <p className="empty-waiting">Không còn ai chờ bàn này.</p>
+            <p className="empty-waiting">Không còn ai đang chờ.</p>
           ) : (
             <ul className="waiting-list">
               {state.waiting.map((person, index) => (
@@ -163,7 +163,7 @@ function TableView({ tableNumber }: { tableNumber: number }) {
                 <strong>Bàn {tableNumber}</strong>?
               </p>
             ) : (
-              <p>Không còn người chờ bàn này.</p>
+              <p>Không còn người chờ.</p>
             )}
             {actionError && <p className="form-error">{actionError}</p>}
             <div className="modal-actions">

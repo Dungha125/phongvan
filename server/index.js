@@ -99,7 +99,7 @@ function loadRosterFromCsv() {
       startTime: (startTime || '').trim(),
       endTime: (endTime || '').trim(),
       queueNumber: stt,
-      tableNumber: ((stt - 1) % TABLE_COUNT) + 1,
+      tableNumber: null,
       status: 'pending',
       note: '',
       checkedInAt: null,
@@ -119,12 +119,29 @@ function defaultData() {
   return loadRosterFromCsv();
 }
 
+function sortWaiting(a, b) {
+  const ta = a.checkedInAt || '';
+  const tb = b.checkedInAt || '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return a.queueNumber - b.queueNumber;
+}
+
+function normalizePeople(data) {
+  // Chưa gọi bàn thì không giữ bàn đã gán sẵn (data cũ / CSV cũ).
+  for (const p of data.people) {
+    if (p.status === 'pending' || p.status === 'waiting') {
+      p.tableNumber = null;
+    }
+  }
+  return data;
+}
+
 function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       if (Array.isArray(data.people) && data.people.length > 0) {
-        return data;
+        return normalizePeople(data);
       }
     }
   } catch {
@@ -154,7 +171,9 @@ function snapshot(data, tableNumber = null) {
     .slice()
     .sort((a, b) => a.queueNumber - b.queueNumber);
 
-  const waitingAll = people.filter((p) => p.status === 'waiting');
+  const waitingAll = people
+    .filter((p) => p.status === 'waiting')
+    .sort(sortWaiting);
   const interviewingAll = people.filter((p) => p.status === 'interviewing');
   const pendingAll = people.filter((p) => p.status === 'pending');
 
@@ -187,16 +206,15 @@ function snapshot(data, tableNumber = null) {
   }
 
   const table = tables.find((t) => t.tableNumber === tableNumber);
-  const waiting = waitingAll.filter((p) => p.tableNumber === tableNumber);
-
+  // Hàng chờ chung — bàn nào gọi trước lấy người đến trước (FIFO check-in).
   return {
     ...base,
     tables: [table],
-    waiting,
+    waiting: waitingAll,
     interviewing: table.person ? [table.person] : [],
     tableNumber,
     current: table.person,
-    nextWaiting: waiting[0] || null,
+    nextWaiting: waitingAll[0] || null,
   };
 }
 
@@ -260,6 +278,7 @@ app.post('/api/checkin', async (req, res) => {
       }
 
       person.status = 'waiting';
+      person.tableNumber = null;
       person.checkedInAt = new Date().toISOString();
       saveData(data);
 
@@ -293,11 +312,11 @@ app.post('/api/tables/:tableNumber/next', async (req, res) => {
       }
 
       const nextPerson = data.people
-        .filter((p) => p.status === 'waiting' && p.tableNumber === tableNumber)
-        .sort((a, b) => a.queueNumber - b.queueNumber)[0];
+        .filter((p) => p.status === 'waiting')
+        .sort(sortWaiting)[0];
 
       if (!nextPerson) {
-        const error = new Error(`Bàn ${tableNumber} không còn người chờ.`);
+        const error = new Error('Không còn người chờ phỏng vấn.');
         error.status = 400;
         throw error;
       }
@@ -309,6 +328,7 @@ app.post('/api/tables/:tableNumber/next', async (req, res) => {
       }
 
       nextPerson.status = 'interviewing';
+      nextPerson.tableNumber = tableNumber;
       nextPerson.startedAt = new Date().toISOString();
       saveData(data);
 
@@ -387,6 +407,7 @@ app.delete('/api/people/:id', async (req, res) => {
         throw error;
       }
       person.status = 'pending';
+      person.tableNumber = null;
       person.checkedInAt = null;
       saveData(data);
       return { person, state: snapshot(data) };

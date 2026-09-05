@@ -92,8 +92,8 @@ export default function CheckInPage() {
               <p className="eyebrow">Danh sách CSV · Check-in</p>
               <h1>Check-in</h1>
               <p className="lead">
-                Chỉ check-in thí sinh trong danh sách. Bàn gán theo STT: lẻ → bàn
-                1, chẵn → bàn 2.
+                Check-in theo thứ tự đến. Chưa gán bàn — bàn chỉ gán khi được
+                gọi ở màn hình bàn 1 / bàn 2.
               </p>
               {counts && (
                 <p className="count-line">
@@ -142,7 +142,7 @@ export default function CheckInPage() {
               </div>
               <div>
                 <span>Bàn</span>
-                <strong>Bàn {lastPerson.tableNumber}</strong>
+                <strong>Chờ gọi</strong>
               </div>
             </div>
             <p className="ticket-note">
@@ -183,7 +183,11 @@ export default function CheckInPage() {
                     </span>
                   </div>
                   <div className="list-actions">
-                    <span className="waiting-table">Bàn {person.tableNumber}</span>
+                    {person.tableNumber != null ? (
+                      <span className="waiting-table">Bàn {person.tableNumber}</span>
+                    ) : person.status === 'waiting' ? (
+                      <span className="waiting-table">Chờ gọi</span>
+                    ) : null}
                     {person.status === 'pending' && (
                       <button
                         type="button"

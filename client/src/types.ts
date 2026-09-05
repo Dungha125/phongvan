@@ -9,7 +9,7 @@ export interface Person {
   startTime?: string;
   endTime?: string;
   queueNumber: number;
-  tableNumber: number;
+  tableNumber: number | null;
   status: PersonStatus;
   note?: string;
   checkedInAt: string | null;
