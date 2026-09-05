@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,6 +11,12 @@ const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const ROSTER_FILE =
   process.env.ROSTER_FILE || path.join(__dirname, 'roster.csv');
 const TABLE_COUNT = 2;
+
+const CHECKIN_USERNAME = process.env.CHECKIN_USERNAME || 'checkin';
+const CHECKIN_PASSWORD = process.env.CHECKIN_PASSWORD || 'CtvCheckin@2026';
+const AUTH_SECRET =
+  process.env.AUTH_SECRET || 'pv-checkin-secret-change-me-in-prod';
+const TOKEN_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -34,6 +41,83 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+function b64url(input) {
+  return Buffer.from(input)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function signToken(payload) {
+  const body = b64url(JSON.stringify(payload));
+  const sig = crypto
+    .createHmac('sha256', AUTH_SECRET)
+    .update(body)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  return `${body}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [body, sig] = token.split('.');
+  const expected = crypto
+    .createHmac('sha256', AUTH_SECRET)
+    .update(body)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const pad = body.length % 4 === 0 ? '' : '='.repeat(4 - (body.length % 4));
+    const json = Buffer.from(
+      body.replace(/-/g, '+').replace(/_/g, '/') + pad,
+      'base64'
+    ).toString('utf8');
+    const payload = JSON.parse(json);
+    if (!payload?.exp || Date.now() > payload.exp) return null;
+    if (payload.role !== 'checkin') return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function requireCheckin(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: 'Cần đăng nhập tài khoản check-in.' });
+  }
+  req.auth = payload;
+  next();
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const username = String(req.body?.username || '').trim();
+  const password = String(req.body?.password || '');
+  if (username !== CHECKIN_USERNAME || password !== CHECKIN_PASSWORD) {
+    return res.status(401).json({ error: 'Sai tài khoản hoặc mật khẩu.' });
+  }
+  const token = signToken({
+    role: 'checkin',
+    username,
+    exp: Date.now() + TOKEN_TTL_MS,
+  });
+  res.json({ token, username, role: 'checkin' });
+});
+
+app.get('/api/auth/me', requireCheckin, (req, res) => {
+  res.json({ username: req.auth.username, role: req.auth.role });
 });
 
 let writeChain = Promise.resolve();
@@ -112,7 +196,7 @@ function loadRosterFromCsv() {
     throw new Error('Không parse được thí sinh nào từ CSV.');
   }
 
-  return { people };
+  return { people, lastCall: null };
 }
 
 function defaultData() {
@@ -191,6 +275,7 @@ function snapshot(data, tableNumber = null) {
     interviewing: interviewingAll,
     pending: pendingAll,
     people,
+    lastCall: data.lastCall || null,
     tableCount: TABLE_COUNT,
     counts: {
       total: people.length,
@@ -239,7 +324,7 @@ app.get('/api/state/:tableNumber', (req, res) => {
 });
 
 /** Check-in theo MSV hoặc id trong CSV. */
-app.post('/api/checkin', async (req, res) => {
+app.post('/api/checkin', requireCheckin, async (req, res) => {
   const key = String(req.body?.msv || req.body?.id || req.body?.name || '')
     .trim()
     .toUpperCase();
@@ -330,6 +415,14 @@ app.post('/api/tables/:tableNumber/next', async (req, res) => {
       nextPerson.status = 'interviewing';
       nextPerson.tableNumber = tableNumber;
       nextPerson.startedAt = new Date().toISOString();
+      data.lastCall = {
+        id: nextPerson.id,
+        name: nextPerson.name,
+        msv: nextPerson.msv,
+        queueNumber: nextPerson.queueNumber,
+        tableNumber,
+        calledAt: nextPerson.startedAt,
+      };
       saveData(data);
 
       return { person: nextPerson, state: snapshot(data, tableNumber) };
@@ -372,7 +465,7 @@ app.post('/api/tables/:tableNumber/complete', async (req, res) => {
 });
 
 /** Reset về danh sách CSV gốc. */
-app.post('/api/reset', async (_req, res) => {
+app.post('/api/reset', requireCheckin, async (_req, res) => {
   try {
     const state = await withLock(() => {
       const data = defaultData();
@@ -386,7 +479,7 @@ app.post('/api/reset', async (_req, res) => {
 });
 
 /** Hủy check-in nhầm → trả về pending (vẫn giữ trong CSV). */
-app.delete('/api/people/:id', async (req, res) => {
+app.delete('/api/people/:id', requireCheckin, async (req, res) => {
   try {
     const result = await withLock(() => {
       const data = loadData();
@@ -427,4 +520,5 @@ try {
 
 app.listen(PORT, () => {
   console.log(`Interview check-in API: http://localhost:${PORT}`);
+  console.log(`Check-in user: ${CHECKIN_USERNAME}`);
 });

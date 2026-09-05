@@ -7,6 +7,9 @@ services:
       PORT: 3001
       DATA_DIR: /app/data
       CORS_ORIGINS: https://pv.lcdkhoacntt1.com,https://www.pv.lcdkhoacntt1.com,http://localhost:5173,http://localhost:4173
+      CHECKIN_USERNAME: checkin
+      CHECKIN_PASSWORD: CtvCheckin@2026
+      AUTH_SECRET: pv-checkin-prod-secret-2026
     volumes:
       - interview_checkin_data:/app/data
     ports:

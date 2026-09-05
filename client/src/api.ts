@@ -1,28 +1,67 @@
 import type { AppState, Person } from './types';
+import { clearToken, getToken } from './auth';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 function url(path: string) {
   return `${API_BASE}${path}`;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url(path), {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+async function request<T>(
+  path: string,
+  options?: RequestInit & { auth?: boolean }
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+
+  if (options?.auth !== false) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(url(path), { ...options, headers });
   const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && options?.auth !== false) {
+    clearToken();
+  }
+
   if (!res.ok) {
-    throw new Error(data.error || 'Có lỗi xảy ra.');
+    throw new ApiError(data.error || 'Có lỗi xảy ra.', res.status);
   }
   return data as T;
 }
 
+export function login(username: string, password: string) {
+  return request<{ token: string; username: string; role: string }>(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+      auth: false,
+    }
+  );
+}
+
+export function fetchMe() {
+  return request<{ username: string; role: string }>('/api/auth/me');
+}
+
 export function fetchState(tableNumber?: number) {
   if (tableNumber != null) {
-    return request<AppState>(`/api/state/${tableNumber}`);
+    return request<AppState>(`/api/state/${tableNumber}`, { auth: false });
   }
-  return request<AppState>('/api/state');
+  return request<AppState>('/api/state', { auth: false });
 }
 
 export function checkIn(msv: string) {
@@ -35,14 +74,14 @@ export function checkIn(msv: string) {
 export function callNext(tableNumber: number) {
   return request<{ person: Person; state: AppState }>(
     `/api/tables/${tableNumber}/next`,
-    { method: 'POST' }
+    { method: 'POST', auth: false }
   );
 }
 
 export function completeInterview(tableNumber: number) {
   return request<{ person: Person; state: AppState }>(
     `/api/tables/${tableNumber}/complete`,
-    { method: 'POST' }
+    { method: 'POST', auth: false }
   );
 }
 

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { cancelPerson, checkIn, resetAll } from '../api';
+import { clearToken } from '../auth';
 import { useAppState } from '../hooks/useAppState';
-import type { Person, PersonStatus } from '../types';
+import type { LastCall, Person, PersonStatus } from '../types';
 
 const STATUS_LABEL: Record<PersonStatus, string> = {
   pending: 'Chưa đến',
@@ -10,10 +12,41 @@ const STATUS_LABEL: Record<PersonStatus, string> = {
   done: 'Xong',
 };
 
+const SEEN_CALL_KEY = 'pv_last_seen_call';
+
 type FilterKey = 'all' | PersonStatus;
 
+function playCallBeep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.08;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+    window.setTimeout(() => {
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'square';
+      osc2.frequency.value = 1175;
+      gain2.gain.value = 0.08;
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start();
+      osc2.stop(ctx.currentTime + 0.22);
+    }, 200);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function CheckInPage() {
-  const { state, setState, error: loadError } = useAppState(undefined, 2000);
+  const navigate = useNavigate();
+  const { state, setState, error: loadError } = useAppState(undefined, 1500);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [busyId, setBusyId] = useState('');
@@ -21,6 +54,8 @@ export default function CheckInPage() {
   const [toast, setToast] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [callAlert, setCallAlert] = useState<LastCall | null>(null);
+  const primed = useRef(false);
 
   const people = state.people ?? [];
   const counts = state.counts;
@@ -30,6 +65,40 @@ export default function CheckInPage() {
     const id = window.setTimeout(() => setToast(''), 3500);
     return () => window.clearTimeout(id);
   }, [toast]);
+
+  useEffect(() => {
+    const call = state.lastCall;
+    if (!call?.calledAt) return;
+
+    const seen = localStorage.getItem(SEEN_CALL_KEY) || '';
+    if (!primed.current) {
+      // Lần poll đầu: không popup call cũ, chỉ đánh dấu đã biết.
+      primed.current = true;
+      if (!seen) localStorage.setItem(SEEN_CALL_KEY, call.calledAt);
+      else if (seen !== call.calledAt) {
+        setCallAlert(call);
+        playCallBeep();
+      }
+      return;
+    }
+
+    if (seen !== call.calledAt) {
+      setCallAlert(call);
+      playCallBeep();
+    }
+  }, [state.lastCall]);
+
+  function dismissCallAlert() {
+    if (callAlert?.calledAt) {
+      localStorage.setItem(SEEN_CALL_KEY, callAlert.calledAt);
+    }
+    setCallAlert(null);
+  }
+
+  function handleLogout() {
+    clearToken();
+    navigate('/login', { replace: true });
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -105,16 +174,21 @@ export default function CheckInPage() {
     <div className="page checkin-page">
       <header className="topbar topbar-desk">
         <div className="brand">Check-in · CTV VPĐ</div>
-        <button
-          type="button"
-          className="topbar-reset"
-          onClick={() => {
-            setError('');
-            setResetOpen(true);
-          }}
-        >
-          Reset
-        </button>
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className="topbar-reset"
+            onClick={() => {
+              setError('');
+              setResetOpen(true);
+            }}
+          >
+            Reset
+          </button>
+          <button type="button" className="topbar-reset" onClick={handleLogout}>
+            Đăng xuất
+          </button>
+        </div>
       </header>
 
       <div className="desk-shell">
@@ -244,6 +318,28 @@ export default function CheckInPage() {
           )}
         </section>
       </div>
+
+      {callAlert && (
+        <div className="modal-backdrop call-alert-backdrop" role="presentation">
+          <div className="call-alert" role="alertdialog" aria-modal="true">
+            <div className="call-alert-kicker">Thông báo gọi thí sinh</div>
+            <div className="call-alert-table">Bàn {callAlert.tableNumber}</div>
+            <h2 className="call-alert-name">{callAlert.name}</h2>
+            <p className="call-alert-meta">
+              STT #{callAlert.queueNumber}
+              {callAlert.msv ? ` · ${callAlert.msv}` : ''}
+            </p>
+            <p className="call-alert-hint">Mời thí sinh vào bàn phỏng vấn.</p>
+            <button
+              type="button"
+              className="btn btn-primary btn-lg"
+              onClick={dismissCallAlert}
+            >
+              Đã gọi / Đã biết
+            </button>
+          </div>
+        </div>
+      )}
 
       {resetOpen && (
         <div className="modal-backdrop" role="presentation">

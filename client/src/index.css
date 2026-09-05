@@ -70,6 +70,11 @@ input {
   text-transform: uppercase;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .topbar-reset {
   border: 1px solid rgba(255, 255, 255, 0.35);
   background: transparent;
@@ -83,6 +88,126 @@ input {
 
 .topbar-reset:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.login-shell {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.login-card {
+  width: min(100%, 400px);
+  background: var(--white);
+  border: 2px solid var(--blue);
+  padding: 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  color: var(--blue-ink);
+}
+
+.login-lead {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.login-card label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--blue-ink);
+  margin-top: 4px;
+}
+
+.login-card input {
+  width: 100%;
+  border: 1px solid #9eb6d4;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.login-card input:focus {
+  border-color: var(--blue);
+  outline: 2px solid rgba(10, 78, 163, 0.18);
+}
+
+.login-card .btn {
+  margin-top: 10px;
+}
+
+.call-alert-backdrop {
+  background: rgba(10, 37, 64, 0.62);
+}
+
+.call-alert {
+  width: min(100%, 460px);
+  background: var(--white);
+  border: 3px solid var(--blue);
+  padding: 28px 24px;
+  text-align: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  animation: call-pop 0.25s ease;
+}
+
+.call-alert-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.call-alert-table {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--white);
+  background: var(--blue);
+  padding: 6px 16px;
+  margin-top: 4px;
+}
+
+.call-alert-name {
+  margin: 8px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 5vw, 2.4rem);
+  line-height: 1.15;
+  color: var(--blue-ink);
+}
+
+.call-alert-meta {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.call-alert-hint {
+  margin: 4px 0 12px;
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+@keyframes call-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .topbar-meta {

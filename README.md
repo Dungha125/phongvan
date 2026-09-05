@@ -37,9 +37,17 @@ Deploy thư mục `client/`. Đã có:
 
 URL (không có tab nav — cấp theo path):
 
-- Check-in: `/`
+- Login check-in: `/login`
+- Check-in (cần đăng nhập): `/`
 - Bàn 1: `/view/1`
 - Bàn 2: `/view/2`
+
+Tài khoản check-in (chỉ account này được check-in / hủy / reset):
+
+- User: `checkin`
+- Pass: `CtvCheckin@2026`
+
+Khi bàn gọi người tiếp theo, trang check-in hiện popup thông báo để mời thí sinh vào.
 
 Domain FE: `https://pv.lcdkhoacntt1.com`
 

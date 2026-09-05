@@ -22,12 +22,22 @@ export interface TableSlot {
   person: Person | null;
 }
 
+export interface LastCall {
+  id: string;
+  name: string;
+  msv?: string;
+  queueNumber: number;
+  tableNumber: number;
+  calledAt: string;
+}
+
 export interface AppState {
   tables: TableSlot[];
   waiting: Person[];
   interviewing: Person[];
   pending?: Person[];
   people?: Person[];
+  lastCall?: LastCall | null;
   tableCount: number;
   tableNumber: number | null;
   current?: Person | null;
