@@ -7,6 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
+const ROSTER_FILE =
+  process.env.ROSTER_FILE || path.join(__dirname, 'roster.csv');
 const TABLE_COUNT = 2;
 
 if (!fs.existsSync(DATA_DIR)) {
@@ -34,7 +36,6 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-/** Serializes all read-modify-write so concurrent /next from 2 tables never corrupt state. */
 let writeChain = Promise.resolve();
 
 function withLock(fn) {
@@ -46,23 +47,92 @@ function withLock(fn) {
   return run;
 }
 
+function parseCsvLine(line) {
+  const cells = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (ch === ',' && !inQuotes) {
+      cells.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+function loadRosterFromCsv() {
+  if (!fs.existsSync(ROSTER_FILE)) {
+    throw new Error(`Không tìm thấy file roster: ${ROSTER_FILE}`);
+  }
+  const raw = fs.readFileSync(ROSTER_FILE, 'utf8').replace(/^\uFEFF/, '');
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) {
+    throw new Error('File CSV roster trống.');
+  }
+
+  const people = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    const [
+      sttRaw,
+      name,
+      msv,
+      classCode,
+      startTime,
+      endTime,
+    ] = parseCsvLine(lines[i]);
+    const stt = Number(sttRaw);
+    if (!name || !msv || !Number.isInteger(stt)) continue;
+    people.push({
+      id: String(msv).trim().toUpperCase(),
+      stt,
+      name: name.trim(),
+      msv: String(msv).trim(),
+      classCode: (classCode || '').trim(),
+      startTime: (startTime || '').trim(),
+      endTime: (endTime || '').trim(),
+      queueNumber: stt,
+      tableNumber: ((stt - 1) % TABLE_COUNT) + 1,
+      status: 'pending',
+      note: '',
+      checkedInAt: null,
+      startedAt: null,
+      finishedAt: null,
+    });
+  }
+
+  if (people.length === 0) {
+    throw new Error('Không parse được thí sinh nào từ CSV.');
+  }
+
+  return { people };
+}
+
 function defaultData() {
-  return {
-    nextQueueNumber: 1,
-    nextTableIndex: 0,
-    people: [],
-  };
+  return loadRosterFromCsv();
 }
 
 function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      if (Array.isArray(data.people) && data.people.length > 0) {
+        return data;
+      }
     }
   } catch {
     /* fall through */
   }
-  return defaultData();
+  const data = defaultData();
+  saveData(data);
+  return data;
 }
 
 function saveData(data) {
@@ -80,13 +150,13 @@ function parseTableNumber(raw) {
 }
 
 function snapshot(data, tableNumber = null) {
-  const waitingAll = data.people
-    .filter((p) => p.status === 'waiting')
+  const people = data.people
+    .slice()
     .sort((a, b) => a.queueNumber - b.queueNumber);
 
-  const interviewingAll = data.people
-    .filter((p) => p.status === 'interviewing')
-    .sort((a, b) => a.tableNumber - b.tableNumber);
+  const waitingAll = people.filter((p) => p.status === 'waiting');
+  const interviewingAll = people.filter((p) => p.status === 'interviewing');
+  const pendingAll = people.filter((p) => p.status === 'pending');
 
   const tables = Array.from({ length: TABLE_COUNT }, (_, i) => {
     const num = i + 1;
@@ -96,24 +166,34 @@ function snapshot(data, tableNumber = null) {
     };
   });
 
+  const base = {
+    tables,
+    waiting: waitingAll,
+    interviewing: interviewingAll,
+    pending: pendingAll,
+    people,
+    tableCount: TABLE_COUNT,
+    counts: {
+      total: people.length,
+      pending: pendingAll.length,
+      waiting: waitingAll.length,
+      interviewing: interviewingAll.length,
+      done: people.filter((p) => p.status === 'done').length,
+    },
+  };
+
   if (tableNumber == null) {
-    return {
-      tables,
-      waiting: waitingAll,
-      interviewing: interviewingAll,
-      tableCount: TABLE_COUNT,
-      tableNumber: null,
-    };
+    return { ...base, tableNumber: null };
   }
 
   const table = tables.find((t) => t.tableNumber === tableNumber);
   const waiting = waitingAll.filter((p) => p.tableNumber === tableNumber);
 
   return {
+    ...base,
     tables: [table],
     waiting,
     interviewing: table.person ? [table.person] : [],
-    tableCount: TABLE_COUNT,
     tableNumber,
     current: table.person,
     nextWaiting: waiting[0] || null,
@@ -121,7 +201,11 @@ function snapshot(data, tableNumber = null) {
 }
 
 app.get('/api/state', (_req, res) => {
-  res.json(snapshot(loadData()));
+  try {
+    res.json(snapshot(loadData()));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Không tải được dữ liệu.' });
+  }
 });
 
 app.get('/api/state/:tableNumber', (req, res) => {
@@ -129,48 +213,64 @@ app.get('/api/state/:tableNumber', (req, res) => {
   if (!tableNumber) {
     return res.status(400).json({ error: 'Bàn không hợp lệ. Chỉ có bàn 1 và bàn 2.' });
   }
-  res.json(snapshot(loadData(), tableNumber));
+  try {
+    res.json(snapshot(loadData(), tableNumber));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Không tải được dữ liệu.' });
+  }
 });
 
+/** Check-in theo MSV hoặc id trong CSV. */
 app.post('/api/checkin', async (req, res) => {
-  const name = String(req.body?.name || '').trim();
-  if (!name) {
-    return res.status(400).json({ error: 'Vui lòng nhập họ tên.' });
+  const key = String(req.body?.msv || req.body?.id || req.body?.name || '')
+    .trim()
+    .toUpperCase();
+  if (!key) {
+    return res.status(400).json({ error: 'Vui lòng chọn thí sinh trong danh sách CSV.' });
   }
 
   try {
     const result = await withLock(() => {
       const data = loadData();
-      const tableNumber = (data.nextTableIndex % TABLE_COUNT) + 1;
-      const person = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        queueNumber: data.nextQueueNumber,
-        tableNumber,
-        status: 'waiting',
-        checkedInAt: new Date().toISOString(),
-        startedAt: null,
-        finishedAt: null,
-      };
+      const person =
+        data.people.find((p) => p.id === key || String(p.msv).toUpperCase() === key) ||
+        data.people.find(
+          (p) => p.name.trim().toUpperCase() === String(req.body?.name || '').trim().toUpperCase()
+        );
 
-      data.people.push(person);
-      data.nextQueueNumber += 1;
-      data.nextTableIndex += 1;
+      if (!person) {
+        const error = new Error('Thí sinh không có trong danh sách CSV.');
+        error.status = 404;
+        throw error;
+      }
+      if (person.status === 'waiting') {
+        const error = new Error(`${person.name} đã check-in rồi.`);
+        error.status = 409;
+        throw error;
+      }
+      if (person.status === 'interviewing') {
+        const error = new Error(`${person.name} đang phỏng vấn.`);
+        error.status = 409;
+        throw error;
+      }
+      if (person.status === 'done') {
+        const error = new Error(`${person.name} đã hoàn thành phỏng vấn.`);
+        error.status = 409;
+        throw error;
+      }
+
+      person.status = 'waiting';
+      person.checkedInAt = new Date().toISOString();
       saveData(data);
 
       return { person, state: snapshot(data) };
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Check-in thất bại.' });
+    res.status(err.status || 500).json({ error: err.message || 'Check-in thất bại.' });
   }
 });
 
-/**
- * Gọi người tiếp theo cho đúng 1 bàn.
- * Hàng đợi tách theo tableNumber → bàn 1 và bàn 2 gọi cùng lúc không tranh cùng 1 người.
- * Mutex + kiểm tra lại status tránh double-click / race trên cùng bàn.
- */
 app.post('/api/tables/:tableNumber/next', async (req, res) => {
   const tableNumber = parseTableNumber(req.params.tableNumber);
   if (!tableNumber) {
@@ -202,7 +302,6 @@ app.post('/api/tables/:tableNumber/next', async (req, res) => {
         throw error;
       }
 
-      // CAS: chỉ nhận nếu vẫn đang waiting (phòng trường hợp bất thường)
       if (nextPerson.status !== 'waiting') {
         const error = new Error('Người này vừa được gọi bởi thao tác khác. Thử lại.');
         error.status = 409;
@@ -252,6 +351,7 @@ app.post('/api/tables/:tableNumber/complete', async (req, res) => {
   }
 });
 
+/** Reset về danh sách CSV gốc. */
 app.post('/api/reset', async (_req, res) => {
   try {
     const state = await withLock(() => {
@@ -264,6 +364,45 @@ app.post('/api/reset', async (_req, res) => {
     res.status(500).json({ error: err.message || 'Reset thất bại.' });
   }
 });
+
+/** Hủy check-in nhầm → trả về pending (vẫn giữ trong CSV). */
+app.delete('/api/people/:id', async (req, res) => {
+  try {
+    const result = await withLock(() => {
+      const data = loadData();
+      const key = String(req.params.id || '').trim().toUpperCase();
+      const person = data.people.find(
+        (p) => p.id === key || String(p.msv).toUpperCase() === key
+      );
+      if (!person) {
+        const error = new Error('Không tìm thấy thí sinh.');
+        error.status = 404;
+        throw error;
+      }
+      if (person.status !== 'waiting') {
+        const error = new Error(
+          'Chỉ hủy được người đang chờ. Người đang/đã phỏng vấn không hủy bằng cách này.'
+        );
+        error.status = 409;
+        throw error;
+      }
+      person.status = 'pending';
+      person.checkedInAt = null;
+      saveData(data);
+      return { person, state: snapshot(data) };
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Không hủy được.' });
+  }
+});
+
+try {
+  loadData();
+  console.log(`Roster loaded from ${ROSTER_FILE}`);
+} catch (err) {
+  console.error('Roster load warning:', err.message);
+}
 
 app.listen(PORT, () => {
   console.log(`Interview check-in API: http://localhost:${PORT}`);

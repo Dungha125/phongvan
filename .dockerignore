@@ -8,3 +8,5 @@ nodemon.json
 data
 server/data.json
 server/data.json.tmp
+deploy/*.txt
+package-lock.json

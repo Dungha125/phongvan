@@ -25,10 +25,10 @@ export function fetchState(tableNumber?: number) {
   return request<AppState>('/api/state');
 }
 
-export function checkIn(name: string) {
+export function checkIn(msv: string) {
   return request<{ person: Person; state: AppState }>('/api/checkin', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ msv }),
   });
 }
 
@@ -44,4 +44,14 @@ export function completeInterview(tableNumber: number) {
     `/api/tables/${tableNumber}/complete`,
     { method: 'POST' }
   );
+}
+
+export function cancelPerson(id: string) {
+  return request<{ person: Person; state: AppState }>(`/api/people/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export function resetAll() {
+  return request<AppState>('/api/reset', { method: 'POST' });
 }

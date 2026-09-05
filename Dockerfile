@@ -2,16 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY package.docker.json ./package.json
+RUN npm install --omit=dev
 
 COPY server ./server
 
-RUN mkdir -p /app/data && \
-    echo '{"nextQueueNumber":1,"nextTableIndex":0,"people":[]}' > /app/data/data.json
-
 ENV PORT=3001
 ENV DATA_DIR=/app/data
+ENV ROSTER_FILE=/app/server/roster.csv
 ENV NODE_ENV=production
 
 EXPOSE 3001

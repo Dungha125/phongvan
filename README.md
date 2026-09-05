@@ -2,7 +2,7 @@
 
 Hệ thống check-in phỏng vấn với 2 bàn, gán bàn lần lượt khi check-in.
 
-## Chạy
+## Chạy local
 
 ```bash
 cd interview-checkin
@@ -10,18 +10,50 @@ npm run dev
 ```
 
 - Check-in: http://localhost:5173/
-- Màn hình gọi số: http://localhost:5173/view
-- API: http://localhost:3001
+- Bàn 1: http://localhost:5173/view/1
+- Bàn 2: http://localhost:5173/view/2
+
+## Production
+
+### Backend (đã deploy Docker trên VPS)
+
+- API: https://api.pv.lcdkhoacntt1.com
+- Health: https://api.pv.lcdkhoacntt1.com/health
+- Container: `interview-checkin-api`
+- Bind: `127.0.0.1:8011` → Caddy reverse proxy
+- Code trên server: `/opt/interview-checkin`
+
+```bash
+cd /opt/interview-checkin
+docker compose up -d --build
+```
+
+### Frontend (Vercel)
+
+Deploy thư mục `client/`. Đã có:
+
+- `client/vercel.json` — SPA rewrite tránh 404 khi reload
+- `client/.env.production` — `VITE_API_BASE=https://api.pv.lcdkhoacntt1.com`
+
+URL (không có tab nav — cấp theo path):
+
+- Check-in: `/`
+- Bàn 1: `/view/1`
+- Bàn 2: `/view/2`
+
+Domain FE: `https://pv.lcdkhoacntt1.com`
+
+Danh sách thí sinh lấy từ `server/roster.csv` (45 người). Check-in chỉ với người trong CSV. Reset đưa về CSV gốc.
 
 ## Luồng
 
-1. Check-in → nhận số thứ tự, tự gán Bàn 1 / Bàn 2 xen kẽ
-2. `/view/1` và `/view/2` — mỗi bàn gọi độc lập (hàng chờ tách theo bàn)
-3. Bấm **Người tiếp theo** → popup xác nhận → gọi người đầu hàng của đúng bàn đó
-4. Bấm **Hoàn thành** để giải phóng bàn
+1. Check-in → số thứ tự, gán Bàn 1 / Bàn 2 xen kẽ
+2. `/view/1` và `/view/2` gọi độc lập
+3. **Người tiếp theo** → popup xác nhận
+4. **Hoàn thành** giải phóng bàn
 
-## Chống xung đột khi gọi cùng lúc
+## Chống xung đột
 
-- Bàn 1 và bàn 2 chỉ lấy người `waiting` đúng `tableNumber` → không tranh cùng 1 người
-- Mọi thao tác ghi (check-in / next / complete) đi qua **mutex tuần tự** trên server
-- Ghi file qua temp + rename; nếu bàn đang bận hoặc người đã bị lấy → HTTP 409
+- Hàng chờ tách theo `tableNumber`
+- Mutex tuần tự trên server
+- HTTP 409 nếu bàn đang bận

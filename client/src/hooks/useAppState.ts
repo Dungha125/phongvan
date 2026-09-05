@@ -9,6 +9,8 @@ const EMPTY: AppState = {
   ],
   waiting: [],
   interviewing: [],
+  pending: [],
+  people: [],
   tableCount: 2,
   tableNumber: null,
   current: null,

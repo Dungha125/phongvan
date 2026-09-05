@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { callNext, completeInterview } from '../api';
 import { useAppState } from '../hooks/useAppState';
 
@@ -33,7 +33,7 @@ function TableView({ tableNumber }: { tableNumber: number }) {
     try {
       const result = await callNext(tableNumber);
       setState(result.state);
-      setToast(`Đang gọi ${result.person.name} — số #${result.person.queueNumber}`);
+      setToast(`Đang gọi ${result.person.name} — STT #${result.person.queueNumber}`);
       setConfirmOpen(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Không gọi được.');
@@ -59,31 +59,14 @@ function TableView({ tableNumber }: { tableNumber: number }) {
 
   return (
     <div className="page view-page">
-      <header className="topbar">
-        <div className="brand">Phỏng vấn</div>
-        <nav>
-          <Link to="/" className="nav-link">
-            Check-in
-          </Link>
-          <Link
-            to="/view/1"
-            className={`nav-link ${tableNumber === 1 ? 'active' : ''}`}
-          >
-            Bàn 1
-          </Link>
-          <Link
-            to="/view/2"
-            className={`nav-link ${tableNumber === 2 ? 'active' : ''}`}
-          >
-            Bàn 2
-          </Link>
-        </nav>
+      <header className="topbar topbar-simple">
+        <div className="brand">Phỏng vấn · Bàn {tableNumber}</div>
       </header>
 
       <main className="view-main view-main-single">
         <div className="view-header">
           <div>
-            <p className="eyebrow">Màn hình độc lập</p>
+            <p className="eyebrow">Màn hình bàn {tableNumber}</p>
             <h1>Bàn {tableNumber}</h1>
           </div>
           <button
@@ -115,7 +98,10 @@ function TableView({ tableNumber }: { tableNumber: number }) {
             {current ? (
               <>
                 <div className="table-person-name">{current.name}</div>
-                <div className="table-person-meta">Số #{current.queueNumber}</div>
+                <div className="table-person-meta">
+                  STT #{current.queueNumber}
+                  {current.msv ? ` · ${current.msv}` : ''}
+                </div>
                 <button
                   type="button"
                   className="btn btn-ghost"
@@ -145,7 +131,12 @@ function TableView({ tableNumber }: { tableNumber: number }) {
                 <li key={person.id} className={index === 0 ? 'next-up' : ''}>
                   <div className="waiting-left">
                     <span className="queue-no">#{person.queueNumber}</span>
-                    <span className="waiting-name">{person.name}</span>
+                    <div className="roster-info">
+                      <span className="waiting-name">{person.name}</span>
+                      {person.msv && (
+                        <span className="roster-meta">{person.msv}</span>
+                      )}
+                    </div>
                   </div>
                   {index === 0 && <span className="waiting-table">Tiếp theo</span>}
                 </li>
@@ -166,8 +157,10 @@ function TableView({ tableNumber }: { tableNumber: number }) {
             <h3 id="confirm-title">Gọi người tiếp theo?</h3>
             {nextWaiting ? (
               <p>
-                Xác nhận gọi <strong>{nextWaiting.name}</strong> (số #
-                {nextWaiting.queueNumber}) vào <strong>Bàn {tableNumber}</strong>?
+                Xác nhận gọi <strong>{nextWaiting.name}</strong> (STT #
+                {nextWaiting.queueNumber}
+                {nextWaiting.msv ? ` · ${nextWaiting.msv}` : ''}) vào{' '}
+                <strong>Bàn {tableNumber}</strong>?
               </p>
             ) : (
               <p>Không còn người chờ bàn này.</p>
